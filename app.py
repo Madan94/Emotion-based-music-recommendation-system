@@ -1,4 +1,3 @@
-# ================== Imports ==================
 import numpy as np
 import streamlit as st
 import cv2
@@ -7,23 +6,31 @@ from collections import Counter
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D
 
-# ================== Load Dataset ==================
-df = pd.read_csv("/home/madhan/Mini Projects/Emotion-based-music-recommendation-system/muse_v3.csv")
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+df = pd.read_csv(os.path.join(BASE_DIR, "muse_v3.csv"))
 
-df['link'] = df['lastfm_url']
+
+df = df[df['spotify_id'].notna() & (df['spotify_id'] != '')].copy()
+
+
+df['link'] = df['spotify_id'].apply(lambda x: f"https://open.spotify.com/track/{x}" if pd.notna(x) and x != '' else None)
 df['name'] = df['track']
 df['emotional'] = df['number_of_emotion_tags']
 df['pleasant'] = df['valence_tags']
 df = df[['name','emotional','pleasant','link','artist']]
+
+df = df[df['link'].notna()].copy()
+
 df = df.sort_values(by=["emotional", "pleasant"]).reset_index(drop=True)
 
-df_sad     = df[:18000]
-df_fear    = df[18000:36000]
-df_angry   = df[36000:54000]
-df_neutral = df[54000:72000]
-df_happy   = df[72000:]
+total_songs = len(df)
+df_sad     = df[:min(18000, total_songs//5)]
+df_fear    = df[min(18000, total_songs//5):min(36000, 2*total_songs//5)]
+df_angry   = df[min(36000, 2*total_songs//5):min(54000, 3*total_songs//5)]
+df_neutral = df[min(54000, 3*total_songs//5):min(72000, 4*total_songs//5)]
+df_happy   = df[min(72000, 4*total_songs//5):]
 
-# ================== Recommendation Logic ==================
 def recommend(emotions):
     data = pd.DataFrame()
     mapping = {
@@ -36,16 +43,18 @@ def recommend(emotions):
     counts = [30, 20, 15, 10, 5]
 
     for i, emo in enumerate(emotions[:5]):
-        data = pd.concat(
-            [data, mapping.get(emo, df_sad).sample(n=counts[i])],
-            ignore_index=True
-        )
+        emotion_df = mapping.get(emo, df_sad)
+        sample_size = min(counts[i], len(emotion_df))
+        if sample_size > 0:
+            sampled = emotion_df.sample(n=sample_size)
+            sampled = sampled[sampled['link'].notna() & (sampled['link'].str.contains('open.spotify.com/track', na=False))]
+            if len(sampled) > 0:
+                data = pd.concat([data, sampled], ignore_index=True)
     return data
 
 def most_common(emotion_list):
     return [e for e, _ in Counter(emotion_list).most_common()]
 
-# ================== Load Emotion Model ==================
 model = Sequential([
     Conv2D(32, (3,3), activation='relu', input_shape=(48,48,1)),
     Conv2D(64, (3,3), activation='relu'),
@@ -62,7 +71,7 @@ model = Sequential([
 ])
 
 model.load_weights(
-    "/home/madhan/Mini Projects/Emotion-based-music-recommendation-system/model.h5"
+    os.path.join(BASE_DIR, "model.h5")
 )
 
 emotion_dict = {
@@ -70,7 +79,6 @@ emotion_dict = {
     3:"Happy", 4:"Neutral", 5:"Sad", 6:"Surprised"
 }
 
-# 🔑 NORMALIZATION (CRITICAL FIX)
 EMOTION_MAP = {
     "Disgusted": "Sad",
     "Surprised": "happy",
@@ -81,7 +89,6 @@ EMOTION_MAP = {
     "Sad": "Sad"
 }
 
-# ================== UI ==================
 st.markdown("<h2 style='text-align:center'>Emotion Based Music Recommendation</h2>", unsafe_allow_html=True)
 st.markdown("<h5 style='text-align:center;color:grey'>Scan your face to detect emotion</h5>", unsafe_allow_html=True)
 
@@ -123,13 +130,18 @@ if st.button("SCAN EMOTION"):
     cap.release()
     st.success("Emotion detected successfully")
 
-# ================== Recommendations ==================
 if emotion_list:
     final_emotions = most_common(emotion_list)
     rec_df = recommend(final_emotions)
 
-    st.markdown("<h4 style='text-align:center'>Recommended Songs</h4>", unsafe_allow_html=True)
-
-    for i,(l,a,n) in enumerate(zip(rec_df["link"], rec_df["artist"], rec_df["name"])):
-        st.markdown(f"<h5 style='text-align:center'><a href='{l}'>{i+1}. {n}</a></h5>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align:center;color:grey'>{a}</p>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align:center'>Recommended Songs (Spotify)</h4>", unsafe_allow_html=True)
+    
+    rec_df = rec_df[rec_df['link'].notna() & (rec_df['link'].str.contains('open.spotify.com/track', na=False))].copy()
+    
+    if len(rec_df) > 0:
+        for i,(l,a,n) in enumerate(zip(rec_df["link"], rec_df["artist"], rec_df["name"])):
+            if pd.notna(l) and 'open.spotify.com/track' in str(l):
+                st.markdown(f"<h5 style='text-align:center'><a href='{l}' target='_blank'>{i+1}. {n}</a></h5>", unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align:center;color:grey'>{a}</p>", unsafe_allow_html=True)
+    else:
+        st.warning("No songs with valid Spotify links found. Please try scanning again.")

@@ -26,12 +26,3 @@ To run the app, type the following command in the terminal.
 - Tensorflow
 - Keras
 
-
-
-
-
-## Demo video
-
- [Emotion-based music recommendation system](
-
-
