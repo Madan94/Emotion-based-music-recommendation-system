@@ -6,3 +6,6 @@ tensorflow
 keras
 pillow
 scikit-learn
+speechrecognition
+pydub
+pyaudio
