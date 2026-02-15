@@ -10,6 +10,7 @@ import io
 import tempfile
 from pydub import AudioSegment
 import html
+import time
 
 import os
 
@@ -520,48 +521,95 @@ with tab1:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("SCAN EMOTION", key="scan_emotion"):
-            cap = cv2.VideoCapture(0)
-            face = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-            temp_emotion_list = []
+            cap = None
+            try:
+                # Release any existing camera connection first
+                if 'camera' in st.session_state:
+                    try:
+                        st.session_state.camera.release()
+                    except:
+                        pass
+                
+                # Initialize camera with proper settings
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
+                    st.error("Could not open camera. Please check if your camera is connected and not being used by another application.")
+                else:
+                    # Set camera properties for better performance
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    
+                    face = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+                    temp_emotion_list = []
+                    frames_captured = 0
+                    faces_detected_count = 0
 
-            for _ in range(20):
-                ret, frame = cap.read()
-                if not ret:
-                    break
+                    # Allow camera to warm up
+                    for _ in range(5):
+                        cap.read()
+                    
+                    for i in range(30):  # Increased frames for better detection
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        
+                        frames_captured += 1
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        
+                        # More lenient face detection parameters
+                        # scaleFactor=1.1 (more scales to check), minNeighbors=3 (less strict)
+                        faces = face.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
 
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = face.detectMultiScale(gray, 1.3, 5)
+                        if len(faces) > 0:
+                            faces_detected_count += 1
+                            
+                            for (x,y,w,h) in faces:
+                                roi = gray[y:y+h, x:x+w]
+                                roi = cv2.resize(roi, (48,48))
+                                roi = roi.reshape(1,48,48,1)
 
-                for (x,y,w,h) in faces:
-                    roi = gray[y:y+h, x:x+w]
-                    roi = cv2.resize(roi, (48,48))
-                    roi = roi.reshape(1,48,48,1)
+                                pred = model.predict(roi, verbose=0)
+                                raw_emotion = emotion_dict[int(np.argmax(pred))]
+                                emotion = EMOTION_MAP[raw_emotion]
+                                temp_emotion_list.append(emotion)
 
-                    pred = model.predict(roi, verbose=0)
-                    raw_emotion = emotion_dict[int(np.argmax(pred))]
-                    emotion = EMOTION_MAP[raw_emotion]
-                    temp_emotion_list.append(emotion)
+                                cv2.rectangle(frame,(x,y),(x+w,y+h),(29,185,84),2)
+                                cv2.putText(frame, emotion, (x,y-10),
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.9,(255,255,255),2)
 
-                    cv2.rectangle(frame,(x,y),(x+w,y+h),(29,185,84),2)
-                    cv2.putText(frame, emotion, (x,y-10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.9,(255,255,255),2)
+                        frame_box.image(
+                            cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
+                            channels="RGB",
+                            use_container_width=True
+                        )
+                        
+                        # Small delay to allow processing
+                        time.sleep(0.05)
 
-                frame_box.image(
-                    cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
-                    channels="RGB",
-                    use_container_width=True
-                )
-
-            cap.release()
-            st.session_state.emotion_list = temp_emotion_list
-            if temp_emotion_list:
-                detected_emotions = ', '.join(set(temp_emotion_list))
-                st.markdown(f"""
-                <div class="emotion-card" style="background: linear-gradient(135deg, rgba(29, 185, 84, 0.2) 0%, rgba(18, 18, 18, 1) 100%);">
-                    <h4 style='color: #1DB954; margin: 0;'>✓ Emotion Detected Successfully</h4>
-                    <p style='color: #ffffff; margin-top: 0.5rem;'>Detected emotions: <strong>{detected_emotions}</strong></p>
-                </div>
-                """, unsafe_allow_html=True)
+                    # Only update session state if emotions were detected
+                    if temp_emotion_list:
+                        st.session_state.emotion_list = temp_emotion_list
+                        detected_emotions = ', '.join(set(temp_emotion_list))
+                        st.markdown(f"""
+                        <div class="emotion-card" style="background: linear-gradient(135deg, rgba(29, 185, 84, 0.2) 0%, rgba(18, 18, 18, 1) 100%);">
+                            <h4 style='color: #1DB954; margin: 0;'>✓ Emotion Detected Successfully</h4>
+                            <p style='color: #ffffff; margin-top: 0.5rem;'>Detected emotions: <strong>{detected_emotions}</strong></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    elif frames_captured == 0:
+                        st.error("Could not capture frames from camera. Please check your camera connection.")
+                    elif faces_detected_count == 0:
+                        st.warning(f"No face detected in {frames_captured} frames. Please ensure your face is clearly visible, well-lit, and facing the camera directly.")
+                    else:
+                        st.warning("Face was detected but no emotions were processed. Please try again.")
+            finally:
+                # Always release the camera properly
+                if cap is not None:
+                    try:
+                        cap.release()
+                        cv2.destroyAllWindows()  # Clean up any OpenCV windows
+                    except:
+                        pass
 
 
 with tab2:
@@ -641,9 +689,10 @@ with tab3:
                 else:
                     st.error("Failed to transcribe audio. Please try again.")
 
-emotion_list = st.session_state.emotion_list
+# Get emotion list from session state
+emotion_list = st.session_state.get('emotion_list', [])
 
-if emotion_list:
+if emotion_list and len(emotion_list) > 0:
     final_emotions = most_common(emotion_list)
     rec_df = recommend(final_emotions)
     
