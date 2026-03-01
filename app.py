@@ -23,42 +23,148 @@ st.set_page_config(
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-df = pd.read_csv(os.path.join(BASE_DIR, "muse_v3.csv"))
 
+# Load English songs dataset
+df_english = pd.read_csv(os.path.join(BASE_DIR, "muse_v3.csv"))
+df_english = df_english[df_english['spotify_id'].notna() & (df_english['spotify_id'] != '')].copy()
+df_english['link'] = df_english['spotify_id'].apply(lambda x: f"https://open.spotify.com/track/{x}" if pd.notna(x) and x != '' else None)
+df_english['name'] = df_english['track']
+df_english['emotional'] = df_english['number_of_emotion_tags']
+df_english['pleasant'] = df_english['valence_tags']
+df_english = df_english[['name','emotional','pleasant','link','artist']]
+df_english = df_english[df_english['link'].notna()].copy()
+df_english['language'] = 'English'
+df_english = df_english.sort_values(by=["emotional", "pleasant"]).reset_index(drop=True)
 
-df = df[df['spotify_id'].notna() & (df['spotify_id'] != '')].copy()
+# Load Tamil songs dataset if it exists
+df_tamil = pd.DataFrame()
+tamil_file = os.path.join(BASE_DIR, "tamil_songs.csv")
+if os.path.exists(tamil_file):
+    try:
+        df_tamil = pd.read_csv(tamil_file)
+        # Ensure required columns exist
+        if 'spotify_id' in df_tamil.columns:
+            df_tamil = df_tamil[df_tamil['spotify_id'].notna() & (df_tamil['spotify_id'] != '')].copy()
+            
+            # Validate Spotify IDs (should be 22 characters, alphanumeric)
+            def validate_spotify_id(track_id):
+                if pd.isna(track_id) or track_id == '':
+                    return False
+                track_id_str = str(track_id).strip()
+                # Spotify track IDs are typically 22 characters, alphanumeric
+                if len(track_id_str) == 22 and track_id_str.isalnum():
+                    return True
+                # Also check if it's a full URL and extract ID
+                if 'spotify.com/track/' in track_id_str:
+                    track_id_str = track_id_str.split('track/')[-1].split('?')[0]
+                    if len(track_id_str) == 22 and track_id_str.isalnum():
+                        return True
+                return False
+            
+            # Clean and validate Spotify IDs
+            def clean_spotify_id(track_id):
+                if pd.isna(track_id) or track_id == '':
+                    return None
+                track_id_str = str(track_id).strip()
+                # If it's a full URL, extract the ID
+                if 'spotify.com/track/' in track_id_str:
+                    track_id_str = track_id_str.split('track/')[-1].split('?')[0]
+                # Remove any whitespace
+                track_id_str = track_id_str.strip()
+                # Validate format
+                if len(track_id_str) == 22 and track_id_str.isalnum():
+                    return track_id_str
+                return None
+            
+            # Clean the Spotify IDs
+            df_tamil['spotify_id_cleaned'] = df_tamil['spotify_id'].apply(clean_spotify_id)
+            
+            # Count invalid IDs for warning
+            invalid_count = df_tamil['spotify_id_cleaned'].isna().sum()
+            total_count = len(df_tamil)
+            
+            # Filter out invalid IDs
+            df_tamil = df_tamil[df_tamil['spotify_id_cleaned'].notna()].copy()
+            
+            if len(df_tamil) > 0:
+                df_tamil['link'] = df_tamil['spotify_id_cleaned'].apply(lambda x: f"https://open.spotify.com/track/{x}" if pd.notna(x) and x != '' else None)
+                if 'track' in df_tamil.columns:
+                    df_tamil['name'] = df_tamil['track']
+                elif 'name' not in df_tamil.columns:
+                    df_tamil['name'] = df_tamil.get('song_name', 'Unknown')
+                if 'number_of_emotion_tags' in df_tamil.columns:
+                    df_tamil['emotional'] = df_tamil['number_of_emotion_tags']
+                else:
+                    df_tamil['emotional'] = 0
+                if 'valence_tags' in df_tamil.columns:
+                    df_tamil['pleasant'] = df_tamil['valence_tags']
+                else:
+                    df_tamil['pleasant'] = 0
+                if 'artist' not in df_tamil.columns:
+                    df_tamil['artist'] = df_tamil.get('artist_name', 'Unknown Artist')
+                df_tamil = df_tamil[['name','emotional','pleasant','link','artist']]
+                df_tamil = df_tamil[df_tamil['link'].notna()].copy()
+                df_tamil['language'] = 'Tamil'
+                df_tamil = df_tamil.sort_values(by=["emotional", "pleasant"]).reset_index(drop=True)
+                
+                # Store warning message in session state if there were invalid IDs
+                if invalid_count > 0:
+                    st.session_state.tamil_songs_warning = f"{invalid_count} out of {total_count} Tamil songs have invalid Spotify IDs and were removed. Please check your CSV file."
+            else:
+                st.session_state.tamil_songs_warning = f"No valid Tamil songs found. All {total_count} songs had invalid Spotify IDs. Please verify your CSV file."
+    except Exception as e:
+        st.warning(f"Could not load Tamil songs: {e}")
 
+# Combine datasets
+df_all = pd.concat([df_english, df_tamil], ignore_index=True) if len(df_tamil) > 0 else df_english.copy()
 
-df['link'] = df['spotify_id'].apply(lambda x: f"https://open.spotify.com/track/{x}" if pd.notna(x) and x != '' else None)
-df['name'] = df['track']
-df['emotional'] = df['number_of_emotion_tags']
-df['pleasant'] = df['valence_tags']
-df = df[['name','emotional','pleasant','link','artist']]
+# Initialize language preference in session state
+if 'language_preference' not in st.session_state:
+    st.session_state.language_preference = 'All'
 
-df = df[df['link'].notna()].copy()
+# Function to get dataset based on language preference
+def get_dataset_by_language(language='All'):
+    if language == 'English':
+        return df_english
+    elif language == 'Tamil':
+        return df_tamil if len(df_tamil) > 0 else df_english
+    else:  # All
+        return df_all
 
-df = df.sort_values(by=["emotional", "pleasant"]).reset_index(drop=True)
+# Function to split dataset by emotions
+def split_by_emotions(df_input):
+    total_songs = len(df_input)
+    if total_songs == 0:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    
+    df_sad = df_input[:min(18000, total_songs//5)]
+    df_fear = df_input[min(18000, total_songs//5):min(36000, 2*total_songs//5)]
+    df_angry = df_input[min(36000, 2*total_songs//5):min(54000, 3*total_songs//5)]
+    df_neutral = df_input[min(54000, 3*total_songs//5):min(72000, 4*total_songs//5)]
+    df_happy = df_input[min(72000, 4*total_songs//5):]
+    return df_sad, df_fear, df_angry, df_neutral, df_happy
 
-total_songs = len(df)
-df_sad     = df[:min(18000, total_songs//5)]
-df_fear    = df[min(18000, total_songs//5):min(36000, 2*total_songs//5)]
-df_angry   = df[min(36000, 2*total_songs//5):min(54000, 3*total_songs//5)]
-df_neutral = df[min(54000, 3*total_songs//5):min(72000, 4*total_songs//5)]
-df_happy   = df[min(72000, 4*total_songs//5):]
+# Get current dataset based on language preference
+current_df = get_dataset_by_language(st.session_state.language_preference)
+df_sad, df_fear, df_angry, df_neutral, df_happy = split_by_emotions(current_df)
 
-def recommend(emotions):
+def recommend(emotions, language='All'):
+    # Get dataset based on current language preference
+    current_dataset = get_dataset_by_language(language)
+    current_sad, current_fear, current_angry, current_neutral, current_happy = split_by_emotions(current_dataset)
+    
     data = pd.DataFrame()
     mapping = {
-        "Neutral": df_neutral,
-        "Angry": df_angry,
-        "fear": df_fear,
-        "happy": df_happy,
-        "Sad": df_sad
+        "Neutral": current_neutral,
+        "Angry": current_angry,
+        "fear": current_fear,
+        "happy": current_happy,
+        "Sad": current_sad
     }
     counts = [30, 20, 15, 10, 5]
 
     for i, emo in enumerate(emotions[:5]):
-        emotion_df = mapping.get(emo, df_sad)
+        emotion_df = mapping.get(emo, current_sad)
         sample_size = min(counts[i], len(emotion_df))
         if sample_size > 0:
             sampled = emotion_df.sample(n=sample_size)
@@ -499,6 +605,50 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Language selector
+col_lang1, col_lang2, col_lang3 = st.columns([2, 3, 2])
+with col_lang2:
+    language_options = ['All']
+    if len(df_english) > 0:
+        language_options.append('English')
+    if len(df_tamil) > 0:
+        language_options.append('Tamil')
+    
+    selected_language = st.radio(
+        "Select Language:",
+        options=language_options,
+        index=0 if st.session_state.language_preference not in language_options else language_options.index(st.session_state.language_preference),
+        horizontal=True,
+        key="language_selector"
+    )
+    
+    if selected_language != st.session_state.language_preference:
+        st.session_state.language_preference = selected_language
+        try:
+            st.rerun()
+        except:
+            try:
+                st.experimental_rerun()
+            except:
+                pass
+    
+    if selected_language == 'Tamil' and len(df_tamil) == 0:
+        st.info("Tamil songs dataset not found. Please add a 'tamil_songs.csv' file with columns: spotify_id, track (or name), artist, number_of_emotion_tags, valence_tags")
+    
+    # Show warning if there were invalid Spotify IDs
+    if 'tamil_songs_warning' in st.session_state and st.session_state.tamil_songs_warning:
+        st.warning(st.session_state.tamil_songs_warning)
+        st.info("""
+        **How to get correct Spotify IDs:**
+        1. Open Spotify (web or app) and search for the song
+        2. Right-click on the song → **Share** → **Copy Song Link**
+        3. The link will look like: `https://open.spotify.com/track/4r7spK3M05WxR6GP35yzjJ`
+        4. Copy only the ID part (the 22 characters after `/track/`): `4r7spK3M05WxR6GP35yzjJ`
+        5. Paste this ID in your CSV file
+        
+        **Note:** Spotify track IDs are exactly 22 characters long and contain only letters and numbers.
+        """)
+
 
 if 'emotion_list' not in st.session_state:
     st.session_state.emotion_list = []
@@ -694,7 +844,7 @@ emotion_list = st.session_state.get('emotion_list', [])
 
 if emotion_list and len(emotion_list) > 0:
     final_emotions = most_common(emotion_list)
-    rec_df = recommend(final_emotions)
+    rec_df = recommend(final_emotions, st.session_state.language_preference)
     
     rec_df = rec_df[rec_df['link'].notna() & (rec_df['link'].str.contains('open.spotify.com/track', na=False))].copy()
     

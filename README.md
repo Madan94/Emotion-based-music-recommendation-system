@@ -109,10 +109,45 @@ Emotion-based-music-recommendation-system/
 ├── app.py                          # Main application file
 ├── model.h5                        # Trained emotion detection model
 ├── haarcascade_frontalface_default.xml  # Face detection cascade
-├── muse_v3.csv                     # Music dataset with Spotify links
+├── muse_v3.csv                     # English music dataset with Spotify links
+├── tamil_songs.csv                 # Tamil songs dataset (optional - create this file)
+├── tamil_songs_template.csv        # Template for Tamil songs CSV
 ├── requirements.txt                # Python dependencies
 └── README.md                       # This file
 ```
+
+## Adding Tamil Songs
+
+The app supports Tamil songs! To add Tamil songs:
+
+1. **Create a CSV file** named `tamil_songs.csv` in the project directory
+
+2. **Required columns**:
+   - `spotify_id`: Spotify track ID
+   - `track`: Song name
+   - `artist`: Artist name
+   - `number_of_emotion_tags`: Emotion intensity (0-5, where 0=sad, 5=very happy)
+   - `valence_tags`: Valence score (0-1, where 0=negative, 1=positive)
+
+3. **Example format**:
+   ```csv
+   spotify_id,track,artist,number_of_emotion_tags,valence_tags
+   4r7spK3M05WxR6GP35yzjJ,Enna Solla Pogirai,Anirudh Ravichander,4,0.8
+   5K1m5c9M1zJqoUFIQJd2PD,Why This Kolaveri Di,Dhanush,5,0.9
+   ```
+
+4. **Getting Spotify IDs**:
+   - Open Spotify and find the song
+   - Right-click → Share → Copy Song Link
+   - Extract the ID from the URL (the part after `/track/`)
+   - Example: `https://open.spotify.com/track/4r7spK3M05WxR6GP35yzjJ` → ID is `4r7spK3M05WxR6GP35yzjJ`
+
+5. **Using the app**:
+   - Select "Tamil" from the language selector at the top
+   - Scan your emotion or enter text/speech
+   - Get Tamil song recommendations!
+
+**Note**: If `tamil_songs.csv` doesn't exist, the app will show English songs by default. You can still select "All" to see both languages if Tamil songs are added.
 
 ## How It Works
 

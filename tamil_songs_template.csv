@@ -1,0 +1,20 @@
+spotify_id,track,artist,number_of_emotion_tags,valence_tags
+# Example Tamil songs CSV file
+# Replace the example entries below with actual Tamil songs from Spotify
+# Required columns: spotify_id, track, artist, number_of_emotion_tags, valence_tags
+# 
+# number_of_emotion_tags: 0-5 (0=sad, 5=very happy)
+# valence_tags: 0-1 (0=negative, 1=positive)
+#
+# Example format:
+# spotify_id,track,artist,number_of_emotion_tags,valence_tags
+# 4r7spK3M05WxR6GP35yzjJ,Enna Solla Pogirai,Anirudh Ravichander,4,0.8
+# 5K1m5c9M1zJqoUFIQJd2PD,Why This Kolaveri Di,Dhanush,5,0.9
+# 
+# To get Spotify IDs:
+# 1. Open Spotify and find the song
+# 2. Right-click > Share > Copy Song Link
+# 3. The ID is the part after /track/ in the URL
+# Example: https://open.spotify.com/track/4r7spK3M05WxR6GP35yzjJ
+# The ID is: 4r7spK3M05WxR6GP35yzjJ
+
